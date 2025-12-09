@@ -3,66 +3,64 @@ const cors = require('cors');
 const { MongoClient } = require('mongodb');
 
 const app = express();
-app.use(cors());
 app.use(express.json());
+app.use(cors());
 
-const MONGO_URI = "mongodb+srv://ashamosugan_db_user:p6iTqvB3zkyZcZmH@cluster0.wmdzsm8.mongodb.net/telegram_balance_app?retryWrites=true&w=majority&tls=true";
-
-const client = new MongoClient(MONGO_URI);
+// MongoDB URI (Render Environment Variables-де MONGO_URI деп қос)
+const client = new MongoClient(process.env.MONGO_URI || 'mongodb+srv://ashamosugan_db_user:p6iTqvB3zkyZcZmH@cluster0.wmdzsm8.mongodb.net/telegram_balance_app?retryWrites=true&w=majority&tls=false');
 
 let users;
 
 async function connectDB() {
   try {
     await client.connect();
-    const db = client.db("telegram_balance_app");
-    users = db.collection("users");
-    console.log("✅ MongoDB connected");
+    const db = client.db('telegram_balance_app');
+    users = db.collection('users');
+    console.log('MongoDB connected, users collection ready');
   } catch (err) {
-    console.error("❌ MongoBD error:", err);
+    console.error('MongoDB connection error:', err);
   }
 }
 
-connectDB();
-
-// ✅ Ойыншы кіргенде
+// Кірген ойыншының балансы
 app.get('/get_balance', async (req, res) => {
-  const user_id = req.query.user_id;
-  if (!user_id) return res.json({ error: "No user_id" });
+  const { user_id } = req.query;
+  if (!user_id) return res.status(400).json({ error: 'user_id required' });
 
-  let user = await users.findOne({ user_id });
-
-  if (!user) {
-    user = { user_id, balance: 0 };
-    await users.insertOne(user);
+  try {
+    let user = await users.findOne({ user_id });
+    if (!user) {
+      // Егер жаңа ойыншы болса, қосып қоямыз
+      await users.insertOne({ user_id, balance: 0 });
+      user = { user_id, balance: 0 };
+    }
+    res.json({ user_id: user.user_id, balance: user.balance });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
   }
-
-  res.json(user);
 });
 
-// ✅ Админ баланс өзгерту
-app.get('/admin/set_balance', async (req, res) => {
-  const { user_id, balance } = req.query;
-  if (!user_id || !balance) {
-    return res.json({ error: "user_id and balance required" });
+// Админ эндпоинт: балансты өзгерту
+app.post('/set_balance', async (req, res) => {
+  const { user_id, balance } = req.body;
+  if (!user_id || balance === undefined) return res.status(400).json({ error: 'user_id and balance required' });
+
+  try {
+    const result = await users.updateOne(
+      { user_id },
+      { $set: { balance: Number(balance) } },
+      { upsert: true }
+    );
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
   }
-
-  await users.updateOne(
-    { user_id },
-    { $set: { balance: Number(balance) } },
-    { upsert: true }
-  );
-
-  res.json({ ok: true });
 });
 
-// ✅ Барлық ойыншыларды көру
-app.get('/admin/all_users', async (req, res) => {
-  const all = await users.find().toArray();
-  res.json(all);
-});
-
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log("✅ Server running on port", PORT);
+  console.log(`Server running on port ${PORT}`);
+  connectDB();
 });
