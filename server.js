@@ -1,63 +1,68 @@
 const express = require('express');
 const cors = require('cors');
-const { MongoClient, ObjectId } = require('mongodb');
+const { MongoClient } = require('mongodb');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Render Environment Variable-де қою керек: MONGO_URI
-const client = new MongoClient(process.env.MONGO_URI);
-let balancesCollection;
+const MONGO_URI = "mongodb+srv://ashamosugan_db_user:p6iTqvB3zkyZcZmH@cluster0.wmdzsm8.mongodb.net/telegram_balance_app?retryWrites=true&w=majority&tls=true";
 
-// MongoDB-ге қосылу
+const client = new MongoClient(MONGO_URI);
+
+let users;
+
 async function connectDB() {
-  await client.connect();
-  const db = client.db('telegram_balance_app');
-  balancesCollection = db.collection('balances');
-  console.log('MongoDB connected');
+  try {
+    await client.connect();
+    const db = client.db("telegram_balance_app");
+    users = db.collection("users");
+    console.log("✅ MongoDB connected");
+  } catch (err) {
+    console.error("❌ MongoBD error:", err);
+  }
 }
 
-connectDB().catch(err => {
-  console.error('MongoDB connection error:', err);
-  process.exit(1);
-});
+connectDB();
 
-// Телеграм ойыншы балансы алу
+// ✅ Ойыншы кіргенде
 app.get('/get_balance', async (req, res) => {
-  const userId = req.query.user_id;
-  if (!userId) return res.status(400).json({ error: 'user_id керек' });
+  const user_id = req.query.user_id;
+  if (!user_id) return res.json({ error: "No user_id" });
 
-  let user = await balancesCollection.findOne({ user_id: userId });
+  let user = await users.findOne({ user_id });
+
   if (!user) {
-    // Жаңа ойыншы
-    user = { user_id: userId, balance: 0 };
-    await balancesCollection.insertOne(user);
+    user = { user_id, balance: 0 };
+    await users.insertOne(user);
   }
-  res.json({ balance: user.balance });
+
+  res.json(user);
 });
 
-// Балансты жаңарту (игрок өзі емес, админ қолданады)
-app.post('/update_balance', async (req, res) => {
-  const { user_id, balance } = req.body;
-  if (!user_id || typeof balance !== 'number') {
-    return res.status(400).json({ error: 'Дұрыс дерек жоқ' });
+// ✅ Админ баланс өзгерту
+app.get('/admin/set_balance', async (req, res) => {
+  const { user_id, balance } = req.query;
+  if (!user_id || !balance) {
+    return res.json({ error: "user_id and balance required" });
   }
 
-  const result = await balancesCollection.updateOne(
+  await users.updateOne(
     { user_id },
-    { $set: { balance } },
+    { $set: { balance: Number(balance) } },
     { upsert: true }
   );
 
-  res.json({ success: true, balance });
+  res.json({ ok: true });
 });
 
-// Барлық ойыншылар және баланс (админ үшін)
-app.get('/admin/balances', async (req, res) => {
-  const users = await balancesCollection.find({}).toArray();
-  res.json(users);
+// ✅ Барлық ойыншыларды көру
+app.get('/admin/all_users', async (req, res) => {
+  const all = await users.find().toArray();
+  res.json(all);
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("✅ Server running on port", PORT);
+});
